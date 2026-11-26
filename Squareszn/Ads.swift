@@ -11,6 +11,8 @@ struct RewardedAdView: View {
     /// true = watched to the end (grant the reward), false = skipped.
     let onFinish: (Bool) -> Void
 
+    init(onFinish: @escaping (Bool) -> Void) { self.onFinish = onFinish }
+
     private static let length = 5
     @State private var remaining = RewardedAdView.length
     @State private var spin = false

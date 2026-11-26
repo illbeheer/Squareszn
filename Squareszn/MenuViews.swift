@@ -51,6 +51,8 @@ struct MenuView: View {
     let go: (Screen) -> Void
     @State private var bob = false
 
+    init(go: @escaping (Screen) -> Void) { self.go = go }
+
     var body: some View {
         ZStack {
             LinearGradient(colors: SeasonTheme.infinite, startPoint: .top, endPoint: .bottom)
@@ -126,6 +128,8 @@ struct MenuView: View {
 struct SeasonMapView: View {
     @EnvironmentObject var store: PlayerStore
     let go: (Screen) -> Void
+
+    init(go: @escaping (Screen) -> Void) { self.go = go }
 
     private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
 
@@ -231,6 +235,8 @@ struct SkinShopView: View {
     @State private var pendingBuy: Skin?
     @State private var mysteryResult: Skin?
     @State private var confirmMystery = false
+
+    init(go: @escaping (Screen) -> Void) { self.go = go }
 
     var body: some View {
         ZStack {
@@ -360,6 +366,11 @@ struct MysteryRevealView: View {
     let skin: Skin
     let onDone: () -> Void
     @State private var shown = false
+
+    init(skin: Skin, onDone: @escaping () -> Void) {
+        self.skin = skin
+        self.onDone = onDone
+    }
 
     var body: some View {
         ZStack {
