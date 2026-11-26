@@ -10,6 +10,10 @@ A drag-and-drop block puzzle for iPhone, built with SwiftUI. Drop pieces on an 8
   - **💎 levels** (every 3rd): clear the lines holding every gem.
   - **👑 Level 12** of each season is a tougher score level and finishing it pays a season bonus.
 
+## Every deal can be placed
+
+Each new set of 3 pieces is checked before you get it: there is always an order and a spot for each piece where all three fit, counting rows and columns that clear along the way (so a piece that doesn't fit yet can fit once you finish a line). You can still get stuck by placing pieces badly, which is when Revive comes in. The check is in `BitBoard` / `solvableSet()` in `Engine.swift`.
+
 ## Clearing the whole board changes the blocks
 
 Every time you clear the board completely (+300 points, bonus gold), the run moves to a new block set, adds new piece shapes, and adds special blocks. It lasts until the game ends.

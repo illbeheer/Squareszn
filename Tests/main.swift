@@ -86,7 +86,24 @@ do {
     s.revive(withAd: true)
     check(s.adReviveUsed, "ad revive recorded")
     check(!s.isStuck, "revive leaves a playable tray")
-    check(s.tray.compactMap { $0 }.allSatisfy { s.fits($0.shape) }, "all revive pieces fit")
+    check(s.traySolvable, "revive deal can all be placed")
+}
+
+// Solver
+do {
+    // Empty: (0,7) and column 3 rows 1-4. A 5-long line only fits once a
+    // single at (0,7) clears row 0 and opens (0,3).
+    var b = emptyBoard()
+    for r in 0..<boardSize { for c in 0..<boardSize { b[r][c] = stone } }
+    b[0][7] = nil
+    for r in 1...4 { b[r][3] = nil }
+    let bb = BitBoard(b)
+    let line5 = PieceShape(["X", "X", "X", "X", "X"])
+    let single = PieceShape(["X"])
+    check(bb.placements(line5).isEmpty, "line doesn't fit yet")
+    check(BitBoard.solvable(bb, [line5, single]), "fits after the single clears row 0")
+    check(!BitBoard.solvable(bb, [line5]), "line alone doesn't fit")
+    check(BitBoard.solvable(BitBoard(emptyBoard()), [PieceShape(["XXX", "XXX", "XXX"]), PieceShape(["XXX", "XXX", "XXX"]), PieceShape(["XXXXX"])]), "empty board takes big pieces")
 }
 
 // Season levels
@@ -100,12 +117,13 @@ for n in 0..<Seasons.totalLevels {
     check(level.isGemGoal || level.targetScore > 0, "level \(n) has a goal")
     let s = GameState(level: level, seed: UInt64(n))
     check(!s.isStuck, "level \(n) starts playable")
+    check(s.traySolvable, "level \(n) first deal can all be placed")
     check(!s.isWon, "level \(n) not won at start")
 }
 
-// Random play never crashes and always deals something
+// Random play never crashes, and every deal can be fully placed
 do {
-    var games = 0, moves = 0, maxTier = 0
+    var games = 0, moves = 0, maxTier = 0, deals = 0, badDeals = 0
     for seed in 0..<200 {
         var s = GameState(level: nil, seed: UInt64(seed))
         var guardCount = 0
@@ -117,6 +135,10 @@ do {
                 outer: for r in 0..<boardSize {
                     for c in 0..<boardSize where s.canPlace(p.shape, at: GridPoint(r: r, c: c)) {
                         s.place(trayIndex: i, at: GridPoint(r: r, c: c))
+                        if s.tray.allSatisfy({ $0 != nil }) {
+                            deals += 1
+                            if !s.traySolvable { badDeals += 1 }
+                        }
                         moved = true
                         break outer
                     }
@@ -129,7 +151,8 @@ do {
         maxTier = max(maxTier, s.tier)
         games += 1
     }
-    print("random play: \(games) games, \(moves) moves, highest tier \(maxTier)")
+    print("random play: \(games) games, \(moves) moves, \(deals) deals, highest tier \(maxTier)")
+    check(badDeals == 0, "\(badDeals) deals could not all be placed")
 }
 
 if failures == 0 {

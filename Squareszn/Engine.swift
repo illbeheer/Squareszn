@@ -487,27 +487,57 @@ struct GameState {
                      tier: tier, specials: specials)
     }
 
-    /// Deal 3 new pieces. Tries to give a set where every piece fits somewhere,
-    /// and at least one always fits if the board allows it.
+    /// Deal 3 new pieces that can always all be placed: there is an order and
+    /// a spot for each where all three fit, counting rows/columns that clear
+    /// in between. Tries random sets first; if none is solvable, builds one
+    /// piece by piece on a simulated board.
     mutating func refillTray() {
-        var best: [Piece] = []
-        var bestFits = -1
-        for _ in 0..<30 {
+        tray = solvableSet().map { Optional($0) }
+    }
+
+    mutating func solvableSet() -> [Piece] {
+        let start = BitBoard(board)
+        for _ in 0..<40 {
             let set = [randomPiece(), randomPiece(), randomPiece()]
-            let n = set.filter { fits($0.shape) }.count
-            if n > bestFits { best = set; bestFits = n }
-            if n == 3 { break }
+            if BitBoard.solvable(start, set.map(\.shape)) { return set }
         }
-        if bestFits == 0 {
-            best[0] = randomPiece(fitting: true)
+        // Build one: each piece is chosen to fit the board left by the last.
+        var sim = start
+        var set: [Piece] = []
+        for _ in 0..<3 {
+            var chosen: Piece?
+            for _ in 0..<60 {
+                let p = randomPiece()
+                let spots = sim.placements(p.shape)
+                if !spots.isEmpty {
+                    chosen = p
+                    sim = sim.placing(spots[Int.random(in: 0..<spots.count, using: &rng)])
+                    break
+                }
+            }
+            if chosen == nil {
+                // Last resort: a single block in any empty cell.
+                var single = randomPiece()
+                single = Piece(shape: PieceShape(["X"]), color: single.color, motif: single.motif,
+                               tier: single.tier, specials: [:])
+                let spots = sim.placements(single.shape)
+                if let spot = spots.first { sim = sim.placing(spot) }
+                chosen = single
+            }
+            set.append(chosen!)
         }
-        tray = best.map { Optional($0) }
+        return set.shuffled(using: &rng)
+    }
+
+    /// True if the pieces in the tray can all still be placed.
+    var traySolvable: Bool {
+        BitBoard.solvable(BitBoard(board), tray.compactMap { $0?.shape })
     }
 
     // MARK: Revive
 
     /// Clears the three fullest rows (stones holding gems stay put) and deals
-    /// three pieces that each fit.
+    /// a fresh set that can all be placed.
     mutating func revive(withAd: Bool) {
         if withAd { adReviveUsed = true } else { goldRevivesUsed += 1 }
         let counts = board.map { row in row.filter { $0 != nil }.count }
@@ -519,6 +549,75 @@ struct GameState {
         }
         streak = 0
         movesSinceClear = 0
-        tray = [randomPiece(fitting: true), randomPiece(fitting: true), randomPiece(fitting: true)]
+        refillTray()
+    }
+}
+
+// MARK: - Solver
+
+/// The board as 64 bits (bit r*8+c set = filled), for fast "can these pieces
+/// all be placed?" checks.
+struct BitBoard: Equatable {
+    var bits: UInt64
+
+    init(bits: UInt64) { self.bits = bits }
+
+    init(_ board: [[Block?]]) {
+        var b: UInt64 = 0
+        for r in 0..<boardSize { for c in 0..<boardSize where board[r][c] != nil { b |= 1 << UInt64(r * 8 + c) } }
+        bits = b
+    }
+
+    static func mask(_ shape: PieceShape) -> UInt64 {
+        shape.cells.reduce(UInt64(0)) { $0 | (1 << UInt64($1.r * 8 + $1.c)) }
+    }
+
+    /// Every spot the shape fits, as the mask it would fill.
+    func placements(_ shape: PieceShape) -> [UInt64] {
+        guard shape.width <= boardSize, shape.height <= boardSize else { return [] }
+        let base = BitBoard.mask(shape)
+        var out: [UInt64] = []
+        for r in 0...(boardSize - shape.height) {
+            for c in 0...(boardSize - shape.width) {
+                let m = base << UInt64(r * 8 + c)
+                if bits & m == 0 { out.append(m) }
+            }
+        }
+        return out
+    }
+
+    static let rowMasks: [UInt64] = (0..<8).map { UInt64(0xFF) << UInt64($0 * 8) }
+    static let colMasks: [UInt64] = (0..<8).map { UInt64(0x0101010101010101) << UInt64($0) }
+
+    /// Fill `m`, then clear any full rows and columns.
+    func placing(_ m: UInt64) -> BitBoard {
+        let b = bits | m
+        var clear: UInt64 = 0
+        for rm in BitBoard.rowMasks where b & rm == rm { clear |= rm }
+        for cm in BitBoard.colMasks where b & cm == cm { clear |= cm }
+        return BitBoard(bits: b & ~clear)
+    }
+
+    /// Can all `shapes` be placed, in some order? Gives up (returns false)
+    /// after `budget` board positions so a deal never stalls the game.
+    static func solvable(_ board: BitBoard, _ shapes: [PieceShape], budget: Int = 40_000) -> Bool {
+        var left = budget
+        return search(board, shapes, &left)
+    }
+
+    private static func search(_ board: BitBoard, _ shapes: [PieceShape], _ left: inout Int) -> Bool {
+        if shapes.isEmpty { return true }
+        var tried = Set<PieceShape>()
+        for i in shapes.indices where !tried.contains(shapes[i]) {
+            tried.insert(shapes[i])
+            var rest = shapes
+            rest.remove(at: i)
+            for m in board.placements(shapes[i]) {
+                left -= 1
+                if left <= 0 { return false }
+                if search(board.placing(m), rest, &left) { return true }
+            }
+        }
+        return false
     }
 }
